@@ -11,41 +11,31 @@
 #include "userprog/pagedir.h"
 #include "vm/frame.h"
 
-struct list vm_frames;  // Danh sách các frame
+struct list vm_frames;  
 
-// Khóa để đồng bộ hóa truy cập vào bảng frame
 static struct lock vm_lock;
 
-// Khóa để đảm bảo quá trình eviction là nguyên tử
 static struct lock eviction_lock;
 
-// Thêm một frame mới vào danh sách vm_frames
 static bool add_vm_frame (void *);
 
-// Loại bỏ một frame khỏi danh sách vm_frames
 static void remove_vm_frame (void *);
 
-// Lấy struct vm_frame tương ứng với một frame cụ thể từ danh sách vm_frames
 static struct vm_frame *get_vm_frame (void *);
 
-// Chọn một frame để loại bỏ (evict)
 static struct vm_frame *frame_to_evict (void); 
 
-// Lưu nội dung của frame đã bị loại bỏ vào swap hoặc file
 static bool save_evicted_frame (struct vm_frame *);
 
-/* Khởi tạo bảng frame và các cấu trúc dữ liệu cần thiết */
 void vm_frame_init () {
-  list_init (&vm_frames); // Khởi tạo danh sách liên kết vm_frames
-  lock_init (&vm_lock);   // Khởi tạo khóa đồng bộ hóa vm_lock
-  lock_init (&eviction_lock); // Khởi tạo khóa eviction_lock
+  list_init (&vm_frames); 
+  lock_init (&vm_lock);   
+  lock_init (&eviction_lock); 
 }
 
-// Cấp phát một frame từ vùng nhớ người dùng
 void *vm_allocate_frame(enum palloc_flags flags) {
   void *frame = NULL;
 
-  // Cố gắng cấp phát một trang từ vùng nhớ người dùng (USER_POOL)
   if (flags & PAL_USER)
     {
       if (flags & PAL_ZERO)
@@ -54,60 +44,54 @@ void *vm_allocate_frame(enum palloc_flags flags) {
         frame = palloc_get_page (PAL_USER);
     }
 
-  // Nếu cấp phát thành công, thêm frame vào danh sách vm_frames
   if (frame != NULL)
     add_vm_frame (frame);
-  else  // Nếu không còn frame trống, thực hiện eviction để lấy một frame
+  else 
     if ((frame = evict_frame ()) == NULL)
-      PANIC ("Evicting frame failed");  // Nếu eviction thất bại, báo lỗi
+      PANIC ("Evicting frame failed");  
 
   return frame;
 }
 
-// Giải phóng một frame
 void vm_free_frame (void *frame) {
-  remove_vm_frame (frame); // Loại bỏ frame khỏi danh sách vm_frames
-  palloc_free_page (frame); // Giải phóng vùng nhớ của frame
+  remove_vm_frame (frame); 
+  palloc_free_page (frame); 
 }
 
-// Thiết lập thông tin người dùng cho một frame
 void frame_set_usr (void *frame, uint32_t *pte, void *upage) {
   struct vm_frame *vf;
-  vf = get_vm_frame (frame); // Lấy struct vm_frame tương ứng với frame
+  vf = get_vm_frame (frame); 
   if (vf != NULL)
     {
-      vf->page_table_entry = pte;   // Lưu trữ con trỏ tới mục nhập bảng trang
-      vf->user_virtual_address = upage; // Lưu trữ địa chỉ ảo
+      vf->page_table_entry = pte;   
+      vf->user_virtual_address = upage; 
     }
 }
 
-// Chọn một frame để loại bỏ (evict)
 void * evict_frame () {
   bool result;
   struct vm_frame *vf;
-  struct thread *t = thread_current (); // Lấy luồng hiện tại
+  struct thread *t = thread_current (); 
 
-  lock_acquire (&eviction_lock); // Khóa để đảm bảo quá trình eviction là nguyên tử
+  lock_acquire (&eviction_lock); 
 
-  vf = frame_to_evict ();  // Chọn frame để evict
+  vf = frame_to_evict ();  
   if (vf == NULL)
-    PANIC ("No frame to evict.");  // Nếu không có frame nào để evict, báo lỗi
+    PANIC ("No frame to evict.");  
 
-  result = save_evicted_frame (vf);   // Lưu nội dung của frame đã bị evict
+  result = save_evicted_frame (vf);   
   if (!result)
-    PANIC ("can't save evicted frame");  // Nếu lưu thất bại, báo lỗi
+    PANIC ("can't save evicted frame");  
   
-  // Cập nhật thông tin của frame đã bị evict
   vf->thread_id = t->tid;
   vf->page_table_entry = NULL;
   vf->user_virtual_address = NULL;
 
-  lock_release (&eviction_lock);  // Mở khóa eviction_lock
+  lock_release (&eviction_lock);  
 
-  return vf->frame;  // Trả về con trỏ tới frame đã bị evict
+  return vf->frame;  
 }
 
-// Hàm chọn 1 frame để đuổi
 static struct vm_frame *frame_to_evict () {
   struct vm_frame *vf;
   struct thread *t;
@@ -117,14 +101,9 @@ static struct vm_frame *frame_to_evict () {
 
   int round_count = 1;
   bool found = false;
-  // Duyệt qua từng mục trong bảng frame
+  
   while (!found)
     {
-      /* Duyệt qua danh sách frame, cố gắng tìm frame thuộc lớp (0,0).
-        Nếu tìm thấy, kết thúc việc chọn frame để đuổi. Nếu không, đặt lại bit accessed 
-        của mỗi trang về 0.
-        Tối đa 2 vòng lặp, nếu vẫn không tìm thấy frame (0,0), ta phải chọn frame đầu tiên
-        thuộc lớp khác 0. */
       e = list_head (&vm_frames);
       while ((e = list_next (e)) != list_tail (&vm_frames))
         {
@@ -152,19 +131,15 @@ static struct vm_frame *frame_to_evict () {
 
   return vf_class0;
 }
- 
-/* Lưu nội dung của frame đã bị đuổi (evict) vào swap hoặc file */
+
 static bool save_evicted_frame (struct vm_frame *vf) {
   struct thread *t;
   struct suppl_pte *spte;
 
-  /* Lấy thread tương ứng với tid của vm_frame và bảng trang bổ sung của nó */
   t = thread_get_by_id (vf->thread_id);
 
- /* Lấy mục nhập bảng trang bổ sung tương ứng với địa chỉ ảo của vm_frame */
   spte = get_suppl_pte (&t->suppl_page_table, vf->user_virtual_address);
 
-  /* Nếu không tìm thấy mục nhập bảng trang bổ sung, tạo một mục mới và chèn vào bảng */
   if (spte == NULL)
     {
       spte = calloc(1, sizeof *spte);
@@ -175,10 +150,7 @@ static bool save_evicted_frame (struct vm_frame *vf) {
     }
 
   size_t swap_slot_idx;
-  /* Nếu trang bị bẩn và là mmf_page, ghi lại vào file 
-  * Nếu không, nếu trang bị bẩn, đưa vào swap 
-  * Nếu trang không bẩn và không phải file, thì đó là stack, cần đưa vào swap 
-  * Ở đây, đối với file không bẩn, không làm gì cả, vì luôn có thể tải lại file khi cần. */
+
   if (pagedir_is_dirty (t->pagedir, spte->uvaddr)
       && (spte->type == MMF))
     {
@@ -193,41 +165,36 @@ static bool save_evicted_frame (struct vm_frame *vf) {
 
       spte->type = spte->type | SWAP;
     }
-  /* Nếu trang sạch hoặc chỉ đọc, không làm gì cả */
 
   memset (vf->frame, 0, PGSIZE);
-  /* cập nhật các thuộc tính swap, bao gồm swap_slot_idx,
-     và swap_writable */
+
   spte->swap_slot_idx = swap_slot_idx;
   spte->swap_writable = *(vf->page_table_entry) & PTE_W;
 
   spte->is_loaded = false;
 
-  /* bỏ ánh xạ khỏi pagedir của người dùng, giải phóng trang vm/khung */
   pagedir_clear_page (t->pagedir, spte->uvaddr);
 
   return true;
 }
 
-/* Thêm một mục mới (entry) vào bảng quản lý frame*/
 static bool add_vm_frame (void *frame) {
   struct vm_frame *vf;
-  vf = calloc (1, sizeof *vf);  // Cấp phát bộ nhớ cho một cấu trúc vm_frame mới
+  vf = calloc (1, sizeof *vf);  
  
-  if (vf == NULL)   // Nếu cấp phát bộ nhớ thất bại, trả về false
+  if (vf == NULL)   
     return false;
 
-  vf->thread_id = thread_current ()->tid;  // Gán ID của luồng hiện tại cho frame
-  vf->frame = frame;  // Gán địa chỉ của frame vào cấu trúc vm_frame
+  vf->thread_id = thread_current ()->tid;  
+  vf->frame = frame;  
   
-  lock_acquire (&vm_lock);  // Khóa để đảm bảo an toàn luồng
-  list_push_back (&vm_frames, &vf->elem);  // Thêm frame vào cuối danh sách vm_frames
+  lock_acquire (&vm_lock);  
+  list_push_back (&vm_frames, &vf->elem);  
   lock_release (&vm_lock);
 
   return true;
 }
 
-/* Loại bỏ một mục (entry) khỏi bảng quản lý frame (frame table) và giải phóng vùng nhớ được cấp phát cho mục đó */
 static void remove_vm_frame (void *frame) {
   struct vm_frame *vf;
   struct list_elem *e;
@@ -247,7 +214,6 @@ static void remove_vm_frame (void *frame) {
   lock_release (&vm_lock);
 }
 
-/* Tìm và trả về cấu trúc vm_frame tương ứng với một frame cụ thể trong danh sách vm_frames*/
 static struct vm_frame *get_vm_frame (void *frame) {
   struct vm_frame *vf;
   struct list_elem *e;

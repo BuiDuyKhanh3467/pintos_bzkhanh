@@ -14,19 +14,16 @@ static bool load_page_swap (struct suppl_pte *);
 static bool load_page_mmf (struct suppl_pte *);
 static void free_suppl_pte (struct hash_elem *, void * UNUSED);
 
-/* init the supplemental page table and neccessary data structure */
 void vm_page_init (void) {
   return;
 }
 
-/* Functionality required by hash table*/
 unsigned suppl_pt_hash (const struct hash_elem *he, void *aux UNUSED) {
   const struct suppl_pte *vspte;
   vspte = hash_entry (he, struct suppl_pte, elem);
   return hash_bytes (&vspte->uvaddr, sizeof vspte->uvaddr);
 }
 
-/* Functionality required by hash table*/
 bool suppl_pt_less (const struct hash_elem *hea,
                const struct hash_elem *heb,
 	       void *aux UNUSED) {
@@ -39,8 +36,6 @@ bool suppl_pt_less (const struct hash_elem *hea,
   return (vsptea->uvaddr - vspteb->uvaddr) < 0;
 }
 
-/* Given hash table and its key which is a user virtual address, find the
- * corresponding hash element*/
 struct suppl_pte *get_suppl_pte (struct hash *ht, void *uvaddr){
   struct suppl_pte spte;
   struct hash_elem *e;
@@ -50,7 +45,6 @@ struct suppl_pte *get_suppl_pte (struct hash *ht, void *uvaddr){
   return e != NULL ? hash_entry (e, struct suppl_pte, elem) : NULL;
 }
 
-/* Load page data to the page defined in struct suppl_pte. */
 bool load_page (struct suppl_pte *spte){
   bool success = false;
   switch (spte->type)
@@ -72,19 +66,15 @@ bool load_page (struct suppl_pte *spte){
   return success;
 }
 
-/* Load page data to the page defined in struct suppl_pte from the given file
-   in struct suppl_pte */
 static bool load_page_file (struct suppl_pte *spte) {
   struct thread *cur = thread_current ();
   
   file_seek (spte->data.file_page.file, spte->data.file_page.ofs);
 
-  /* Get a page of memory. */
   uint8_t *kpage = vm_allocate_frame (PAL_USER);
   if (kpage == NULL)
     return false;
-  
-  /* Load this page. */
+
   if (file_read (spte->data.file_page.file, kpage,
 		 spte->data.file_page.read_bytes)
       
@@ -95,8 +85,7 @@ static bool load_page_file (struct suppl_pte *spte) {
     }
   memset (kpage + spte->data.file_page.read_bytes, 0,
 	  spte->data.file_page.zero_bytes);
-  
-  /* Add the page to the process's address space. */
+ 
   if (!pagedir_set_page (cur->pagedir, spte->uvaddr, kpage,
 			 spte->data.file_page.writable))
     {
@@ -108,19 +97,15 @@ static bool load_page_file (struct suppl_pte *spte) {
   return true;
 }
 
-
-/* Load a mmf page whose details are defined in struct suppl_pte */
 static bool load_page_mmf (struct suppl_pte *spte){
   struct thread *cur = thread_current ();
 
   file_seek (spte->data.mmf_page.file, spte->data.mmf_page.ofs);
 
-  /* Get a page of memory. */
   uint8_t *kpage = vm_allocate_frame (PAL_USER);
   if (kpage == NULL)
     return false;
 
-  /* Load this page. */
   if (file_read (spte->data.mmf_page.file, kpage,
 		 spte->data.mmf_page.read_bytes)
       != (int) spte->data.mmf_page.read_bytes)
@@ -131,7 +116,6 @@ static bool load_page_mmf (struct suppl_pte *spte){
   memset (kpage + spte->data.mmf_page.read_bytes, 0,
 	  PGSIZE - spte->data.mmf_page.read_bytes);
 
-  /* Add the page to the process's address space. */
   if (!pagedir_set_page (cur->pagedir, spte->uvaddr, kpage, true)) 
     {
       vm_free_frame (kpage);
@@ -145,27 +129,23 @@ static bool load_page_mmf (struct suppl_pte *spte){
   return true;
 }
 
-/* Load a zero page whose details are defined in struct suppl_pte */
 static bool load_page_swap (struct suppl_pte *spte){
-  /* Get a page of memory. */
+  
   uint8_t *kpage = vm_allocate_frame (PAL_USER);
   if (kpage == NULL)
     return false;
- 
-  /* Map the user page to given frame */
+
   if (!pagedir_set_page (thread_current ()->pagedir, spte->uvaddr, kpage, 
 			 spte->swap_writable))
     {
       vm_free_frame (kpage);
       return false;
     }
- 
-  /* Swap data from disk into memory page */
+
   vm_swap_in (spte->swap_slot_idx, spte->uvaddr);
 
   if (spte->type == SWAP)
     {
-      /* After swap in, remove the corresponding entry in suppl page table */
       hash_delete (&thread_current ()->suppl_page_table, &spte->elem);
     }
   if (spte->type == (FILE | SWAP))
@@ -177,13 +157,10 @@ static bool load_page_swap (struct suppl_pte *spte){
   return true;
 }
 
-/* Free the given supplimental page table, which is a hash table */
 void free_suppl_pt (struct hash *suppl_pt) {
   hash_destroy (suppl_pt, free_suppl_pte);
 }
 
-/* Free supplemental page entry represented by the given hash element in
-   hash table */
 static void free_suppl_pte (struct hash_elem *e, void *aux UNUSED){
   struct suppl_pte *spte;
   spte = hash_entry (e, struct suppl_pte, elem);
@@ -193,7 +170,6 @@ static void free_suppl_pte (struct hash_elem *e, void *aux UNUSED){
   free (spte);
 }
 
-/* insert the given suppl pte */
 bool insert_suppl_pte (struct hash *spt, struct suppl_pte *spte){
   struct hash_elem *result;
 
@@ -207,8 +183,6 @@ bool insert_suppl_pte (struct hash *spt, struct suppl_pte *spte){
   return true;
 }
 
-
-/* Add an file suplemental page entry to supplemental page table */
 bool suppl_pt_insert_file (struct file *file, off_t ofs, uint8_t *upage, 
 		      uint32_t read_bytes, uint32_t zero_bytes, bool writable){
   struct suppl_pte *spte; 
@@ -236,7 +210,6 @@ bool suppl_pt_insert_file (struct file *file, off_t ofs, uint8_t *upage,
   return true;
 }
 
-/* Add an file suplemental page entry to supplemental page table */
 bool suppl_pt_insert_mmf (struct file *file, off_t ofs, uint8_t *upage, 
 		      uint32_t read_bytes){
   struct suppl_pte *spte; 
@@ -262,8 +235,6 @@ bool suppl_pt_insert_mmf (struct file *file, off_t ofs, uint8_t *upage,
   return true;
 }
 
-/* Given a suppl_pte struct spte, write data at address spte->uvaddr to
- * file. It is required if a page is dirty */
 void write_page_back_to_file_wo_lock (struct suppl_pte *spte){
   if (spte->type == MMF)
     {
@@ -274,8 +245,6 @@ void write_page_back_to_file_wo_lock (struct suppl_pte *spte){
     }
 }
 
-
-/* Grow stack by one page where the given address points to */
 void grow_stack (void *uvaddr){
   void *spage;
   struct thread *t = thread_current ();
@@ -284,17 +253,9 @@ void grow_stack (void *uvaddr){
     return;
   else
     {
-      /* Add the page to the process's address space. */
       if (!pagedir_set_page (t->pagedir, pg_round_down (uvaddr), spage, true))
 	{
 	  vm_free_frame (spage); 
 	}
     }
 }
-
-
-
-
-
-
-
